@@ -1,0 +1,79 @@
+---
+# Checkout Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout
+  namespace: astronomy-shop
+  labels:
+    app: checkout
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: checkout
+  template:
+    metadata:
+      labels:
+        app: checkout
+    spec:
+      containers:
+      - name: checkout
+        image: astronomy-shop-lite-app:latest
+        imagePullPolicy: IfNotPresent
+        command: ["opentelemetry-instrument", "python", "-m", "services.checkout.app"]
+        ports:
+        - name: http
+          containerPort: 5050
+          protocol: TCP
+        env:
+        - name: PORT
+          value: "5050"
+        - name: OTEL_SERVICE_NAME
+          value: checkout
+        envFrom:
+        - configMapRef:
+            name: app-environment
+        resources:
+          requests:
+            cpu: 250m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 128Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 2
+      restartPolicy: Always
+
+---
+# Checkout Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: checkout
+  namespace: astronomy-shop
+  labels:
+    app: checkout
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 5050
+    targetPort: http
+    protocol: TCP
+  selector:
+    app: checkout

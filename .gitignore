@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+*.log
+
+NOTICE.md
+KUBERNETES_DEPLOYMENT_COMPLETE.md
+KUBERNETES_SUMMARY.md
+MIGRATION_CHECKLIST.md
+kubernetes/FILE_INDEX.md
+kubernetes/MANIFEST_REFERENCE.md

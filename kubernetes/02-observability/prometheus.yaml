@@ -1,0 +1,83 @@
+---
+# Prometheus Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: astronomy-shop
+  labels:
+    app: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+      - name: prometheus
+        image: quay.io/prometheus/prometheus:v3.9.1
+        args:
+          - --config.file=/etc/prometheus/prometheus.yaml
+          - --storage.tsdb.path=/prometheus
+          - --storage.tsdb.retention.time=24h
+          - --storage.tsdb.retention.size=256MB
+        ports:
+        - name: web
+          containerPort: 9090
+          protocol: TCP
+        volumeMounts:
+        - name: prometheus-config
+          mountPath: /etc/prometheus
+          readOnly: true
+        - name: prometheus-data
+          mountPath: /prometheus
+        resources:
+          requests:
+            cpu: 500m
+            memory: 192Mi
+          limits:
+            cpu: 500m
+            memory: 192Mi
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: web
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: web
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: prometheus-config
+        configMap:
+          name: prometheus-config
+      - name: prometheus-data
+        persistentVolumeClaim:
+          claimName: prometheus-data-pvc
+      restartPolicy: Always
+
+---
+# Prometheus Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: astronomy-shop
+  labels:
+    app: prometheus
+spec:
+  type: ClusterIP
+  ports:
+  - name: web
+    port: 9090
+    targetPort: web
+    protocol: TCP
+  selector:
+    app: prometheus

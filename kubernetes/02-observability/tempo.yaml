@@ -1,0 +1,94 @@
+---
+# Tempo Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo
+  namespace: astronomy-shop
+  labels:
+    app: tempo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tempo
+  template:
+    metadata:
+      labels:
+        app: tempo
+    spec:
+      containers:
+      - name: tempo
+        image: grafana/tempo:2.10.5
+        args:
+          - -config.file=/etc/tempo/config.yaml
+        ports:
+        - name: otlp-grpc
+          containerPort: 4317
+          protocol: TCP
+        - name: otlp-http
+          containerPort: 4318
+          protocol: TCP
+        - name: http
+          containerPort: 3200
+          protocol: TCP
+        volumeMounts:
+        - name: tempo-config
+          mountPath: /etc/tempo
+          readOnly: true
+        - name: tempo-data
+          mountPath: /var/tempo
+        resources:
+          requests:
+            cpu: 500m
+            memory: 192Mi
+          limits:
+            cpu: 500m
+            memory: 192Mi
+        livenessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: tempo-config
+        configMap:
+          name: tempo-config
+      - name: tempo-data
+        persistentVolumeClaim:
+          claimName: tempo-data-pvc
+      restartPolicy: Always
+
+---
+# Tempo Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo
+  namespace: astronomy-shop
+  labels:
+    app: tempo
+spec:
+  type: ClusterIP
+  ports:
+  - name: otlp-grpc
+    port: 4317
+    targetPort: otlp-grpc
+    protocol: TCP
+  - name: otlp-http
+    port: 4318
+    targetPort: otlp-http
+    protocol: TCP
+  - name: http
+    port: 3200
+    targetPort: http
+    protocol: TCP
+  selector:
+    app: tempo

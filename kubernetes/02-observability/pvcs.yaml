@@ -1,0 +1,44 @@
+---
+# PersistentVolumeClaim for Prometheus data
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-data-pvc
+  namespace: astronomy-shop
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 2Gi
+
+---
+# PersistentVolumeClaim for Loki data
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: loki-data-pvc
+  namespace: astronomy-shop
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 2Gi
+
+---
+# PersistentVolumeClaim for Tempo data
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tempo-data-pvc
+  namespace: astronomy-shop
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 3Gi

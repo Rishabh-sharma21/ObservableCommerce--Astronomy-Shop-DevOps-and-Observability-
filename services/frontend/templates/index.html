@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Astronomy Shop Lite</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, system-ui, sans-serif;
+      background: #07111f;
+      color: #e8f0ff;
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: radial-gradient(circle at top, #16335c 0, #07111f 45%); }
+    header { padding: 44px 24px 28px; text-align: center; }
+    h1 { margin: 0; font-size: clamp(2rem, 5vw, 4rem); letter-spacing: -0.05em; }
+    header p { max-width: 720px; margin: 14px auto 0; color: #a9bdd8; line-height: 1.6; }
+    main { width: min(1120px, calc(100% - 32px)); margin: 0 auto 48px; display: grid; grid-template-columns: 1fr 320px; gap: 24px; }
+    section, aside { background: rgba(10, 25, 45, 0.88); border: 1px solid #27476e; border-radius: 18px; padding: 20px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.25); }
+    h2 { margin-top: 0; }
+    #products { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .product { border: 1px solid #2a4c75; border-radius: 14px; padding: 16px; background: #0d213a; display: flex; flex-direction: column; min-height: 210px; }
+    .product h3 { margin: 0 0 8px; }
+    .product p { margin: 0; color: #a9bdd8; line-height: 1.5; flex: 1; }
+    .price { margin: 18px 0 12px; color: #8ee7ff; font-size: 1.2rem; font-weight: 700; }
+    button { border: 0; border-radius: 10px; padding: 11px 14px; font-weight: 700; color: #07111f; background: #8ee7ff; cursor: pointer; }
+    button:hover { background: #b9f2ff; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .cart-item { padding: 12px 0; border-bottom: 1px solid #27476e; display: flex; justify-content: space-between; gap: 12px; }
+    .muted { color: #a9bdd8; }
+    .total { display: flex; justify-content: space-between; margin: 18px 0; font-size: 1.15rem; font-weight: 700; }
+    #checkout { width: 100%; background: #8df4b4; }
+    #message { margin-top: 14px; padding: 12px; border-radius: 10px; background: #112b49; color: #b9d2f0; min-height: 44px; white-space: pre-wrap; }
+    .flow { margin-top: 18px; font-family: ui-monospace, monospace; font-size: 0.82rem; line-height: 1.7; color: #9bb4d4; }
+
+    @media (max-width: 820px) {
+      main { grid-template-columns: 1fr; }
+      #products { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Astronomy Shop Lite</h1>
+    <p>
+      A compact microservices shop instrumented with OpenTelemetry.
+      Add products and check out, then follow the request through metrics,
+      logs, and traces in Grafana.
+    </p>
+  </header>
+
+  <main>
+    <section>
+      <h2>Catalog</h2>
+      <div id="products"><span class="muted">Loading products...</span></div>
+    </section>
+
+    <aside>
+      <h2>Cart</h2>
+      <div id="cart-items"><span class="muted">Loading cart...</span></div>
+      <div class="total"><span>Total</span><span id="cart-total">$0.00</span></div>
+      <button id="checkout" disabled>Complete checkout</button>
+      <div id="message">Ready.</div>
+      <div class="flow">
+        frontend -> product-catalog<br>
+        frontend -> cart -> product-catalog<br>
+        frontend -> checkout -> cart
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const userId = "demo-user";
+    const productsElement = document.getElementById("products");
+    const cartItemsElement = document.getElementById("cart-items");
+    const totalElement = document.getElementById("cart-total");
+    const checkoutButton = document.getElementById("checkout");
+    const messageElement = document.getElementById("message");
+
+    const money = cents => `$${(cents / 100).toFixed(2)}`;
+
+    async function api(url, options = {}) {
+      const response = await fetch(url, {
+        headers: { "Content-Type": "application/json" },
+        ...options,
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `Request failed: ${response.status}`);
+      return data;
+    }
+
+    async function loadProducts() {
+      try {
+        const products = await api("/api/products");
+        productsElement.innerHTML = products.map(product => `
+          <article class="product">
+            <h3>${product.name}</h3>
+            <p>${product.description}</p>
+            <div class="price">${money(product.price_cents)}</div>
+            <button onclick="addItem('${product.id}')">Add to cart</button>
+          </article>
+        `).join("");
+      } catch (error) {
+        productsElement.textContent = error.message;
+      }
+    }
+
+    async function loadCart() {
+      try {
+        const cart = await api(`/api/cart/${userId}`);
+        cartItemsElement.innerHTML = cart.items.length
+          ? cart.items.map(item => `
+              <div class="cart-item">
+                <span>${item.product.name} x ${item.quantity}</span>
+                <strong>${money(item.product.price_cents * item.quantity)}</strong>
+              </div>
+            `).join("")
+          : '<span class="muted">Your cart is empty.</span>';
+        totalElement.textContent = money(cart.total_cents);
+        checkoutButton.disabled = cart.items.length === 0;
+      } catch (error) {
+        cartItemsElement.textContent = error.message;
+      }
+    }
+
+    async function addItem(productId) {
+      messageElement.textContent = "Adding item...";
+      try {
+        await api(`/api/cart/${userId}/items`, {
+          method: "POST",
+          body: JSON.stringify({ product_id: productId, quantity: 1 }),
+        });
+        messageElement.textContent = "Item added. A distributed trace was created.";
+        await loadCart();
+      } catch (error) {
+        messageElement.textContent = error.message;
+      }
+    }
+
+    checkoutButton.addEventListener("click", async () => {
+      checkoutButton.disabled = true;
+      messageElement.textContent = "Creating order...";
+      try {
+        const order = await api(`/api/checkout/${userId}`, { method: "POST" });
+        messageElement.textContent = `Order confirmed:\n${order.order_id}\nTotal: ${money(order.total_cents)}`;
+        await loadCart();
+      } catch (error) {
+        messageElement.textContent = error.message;
+        checkoutButton.disabled = false;
+      }
+    });
+
+    loadProducts();
+    loadCart();
+  </script>
+</body>
+</html>

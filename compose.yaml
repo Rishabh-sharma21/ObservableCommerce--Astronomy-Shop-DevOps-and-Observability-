@@ -1,0 +1,219 @@
+name: astronomy-shop-lite
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "5m"
+    max-file: "2"
+
+x-otel-environment: &otel-environment
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+  OTEL_TRACES_EXPORTER: otlp
+  OTEL_METRICS_EXPORTER: otlp
+  OTEL_LOGS_EXPORTER: otlp
+  OTEL_METRIC_EXPORT_INTERVAL: "10000"
+  OTEL_BSP_SCHEDULE_DELAY: "1000"
+  OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED: "true"
+  OTEL_PYTHON_FLASK_EXCLUDED_URLS: health
+  OTEL_RESOURCE_ATTRIBUTES: deployment.environment=local,service.namespace=astronomy-shop-lite,service.version=1.0.0
+
+x-app: &app
+  image: astronomy-shop-lite-app:local
+  build:
+    context: .
+    dockerfile: Dockerfile
+  restart: unless-stopped
+  mem_limit: 128m
+  cpus: 0.25
+  logging: *default-logging
+
+services:
+  frontend:
+    <<: *app
+    container_name: astronomy-frontend
+    command: ["opentelemetry-instrument", "python", "-m", "services.frontend.app"]
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      <<: *otel-environment
+      OTEL_SERVICE_NAME: frontend
+      PORT: "8080"
+      PRODUCT_CATALOG_URL: http://product-catalog:3550
+      CART_URL: http://cart:7070
+      CHECKOUT_URL: http://checkout:5050
+    depends_on:
+      product-catalog:
+        condition: service_healthy
+      cart:
+        condition: service_healthy
+      checkout:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+
+  product-catalog:
+    <<: *app
+    container_name: astronomy-product-catalog
+    command: ["opentelemetry-instrument", "python", "-m", "services.product_catalog.app"]
+    ports:
+      - "127.0.0.1:3550:3550"
+    environment:
+      <<: *otel-environment
+      OTEL_SERVICE_NAME: product-catalog
+      PORT: "3550"
+    depends_on:
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3550/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+
+  cart:
+    <<: *app
+    container_name: astronomy-cart
+    command: ["opentelemetry-instrument", "python", "-m", "services.cart.app"]
+    ports:
+      - "127.0.0.1:7070:7070"
+    environment:
+      <<: *otel-environment
+      OTEL_SERVICE_NAME: cart
+      PORT: "7070"
+      PRODUCT_CATALOG_URL: http://product-catalog:3550
+    depends_on:
+      product-catalog:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7070/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+
+  checkout:
+    <<: *app
+    container_name: astronomy-checkout
+    command: ["opentelemetry-instrument", "python", "-m", "services.checkout.app"]
+    ports:
+      - "127.0.0.1:5050:5050"
+    environment:
+      <<: *otel-environment
+      OTEL_SERVICE_NAME: checkout
+      PORT: "5050"
+      CART_URL: http://cart:7070
+    depends_on:
+      cart:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5050/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+
+  otel-collector:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.151.0
+    container_name: astronomy-otel-collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    restart: unless-stopped
+    mem_limit: 192m
+    cpus: 0.50
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+    depends_on:
+      - loki
+      - tempo
+    logging: *default-logging
+
+  prometheus:
+    image: quay.io/prometheus/prometheus:v3.9.1
+    container_name: astronomy-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yaml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=24h
+      - --storage.tsdb.retention.size=256MB
+    restart: unless-stopped
+    mem_limit: 192m
+    cpus: 0.50
+    volumes:
+      - ./observability/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    depends_on:
+      - otel-collector
+    logging: *default-logging
+
+  loki:
+    image: grafana/loki:3.7.2
+    container_name: astronomy-loki
+    command: ["-config.file=/etc/loki/config.yaml"]
+    restart: unless-stopped
+    mem_limit: 192m
+    cpus: 0.50
+    volumes:
+      - ./observability/loki.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+    ports:
+      - "127.0.0.1:3100:3100"
+    logging: *default-logging
+
+  tempo:
+    image: grafana/tempo:2.10.5
+    container_name: astronomy-tempo
+    command: ["-config.file=/etc/tempo/config.yaml"]
+    restart: unless-stopped
+    mem_limit: 192m
+    cpus: 0.50
+    volumes:
+      - ./observability/tempo.yaml:/etc/tempo/config.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "127.0.0.1:3200:3200"
+    logging: *default-logging
+
+  grafana:
+    image: grafana/grafana:13.0.1
+    container_name: astronomy-grafana
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.50
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_USERS_DEFAULT_THEME: dark
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - ./observability/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    logging: *default-logging
+
+volumes:
+  grafana-data:
+  loki-data:
+  prometheus-data:
+  tempo-data:

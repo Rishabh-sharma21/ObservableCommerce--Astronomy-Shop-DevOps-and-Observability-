@@ -1,0 +1,1 @@
+"""Astronomy Shop Lite services."""

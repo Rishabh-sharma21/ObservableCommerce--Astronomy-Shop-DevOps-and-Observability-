@@ -1,0 +1,87 @@
+---
+# Loki Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: astronomy-shop
+  labels:
+    app: loki
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loki
+  template:
+    metadata:
+      labels:
+        app: loki
+    spec:
+      containers:
+      - name: loki
+        image: grafana/loki:3.7.2
+        args:
+          - -config.file=/etc/loki/config.yaml
+        ports:
+        - name: http
+          containerPort: 3100
+          protocol: TCP
+        - name: grpc
+          containerPort: 9096
+          protocol: TCP
+        volumeMounts:
+        - name: loki-config
+          mountPath: /etc/loki
+          readOnly: true
+        - name: loki-data
+          mountPath: /loki
+        resources:
+          requests:
+            cpu: 500m
+            memory: 192Mi
+          limits:
+            cpu: 500m
+            memory: 192Mi
+        livenessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: loki-config
+        configMap:
+          name: loki-config
+      - name: loki-data
+        persistentVolumeClaim:
+          claimName: loki-data-pvc
+      restartPolicy: Always
+
+---
+# Loki Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: astronomy-shop
+  labels:
+    app: loki
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 3100
+    targetPort: http
+    protocol: TCP
+  - name: grpc
+    port: 9096
+    targetPort: grpc
+    protocol: TCP
+  selector:
+    app: loki

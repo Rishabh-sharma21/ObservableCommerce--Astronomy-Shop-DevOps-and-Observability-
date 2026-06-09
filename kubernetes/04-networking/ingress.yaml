@@ -1,0 +1,101 @@
+---
+# Ingress for Frontend and API Access
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: astronomy-shop-ingress
+  namespace: astronomy-shop
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: astronomy-shop.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend
+            port:
+              number: 8080
+      - path: /api/products
+        pathType: Prefix
+        backend:
+          service:
+            name: product-catalog
+            port:
+              number: 3550
+      - path: /api/cart
+        pathType: Prefix
+        backend:
+          service:
+            name: cart
+            port:
+              number: 7070
+      - path: /api/checkout
+        pathType: Prefix
+        backend:
+          service:
+            name: checkout
+            port:
+              number: 5050
+  - host: grafana.astronomy-shop.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: grafana
+            port:
+              number: 3000
+  - host: prometheus.astronomy-shop.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: prometheus
+            port:
+              number: 9090
+
+---
+# NetworkPolicy to restrict traffic between namespaces
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: astronomy-shop-network-policy
+  namespace: astronomy-shop
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: astronomy-shop
+    - podSelector: {}
+  - from:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          role: monitoring
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: astronomy-shop
+    - podSelector: {}
+  - to:
+    - namespaceSelector: {}
+  ports:
+  - protocol: TCP
+    port: 53
+  - protocol: UDP
+    port: 53
